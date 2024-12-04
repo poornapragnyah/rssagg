@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"log"
 	"net/http"
 	"os"
@@ -8,7 +9,14 @@ import (
 	"github.com/go-chi/chi"
 	"github.com/go-chi/cors"
 	"github.com/joho/godotenv"
+	"github.com/poornapragnyah/rssagg/internal/database"
+
+	_ "github.com/lib/pq"
 )
+
+type apiConfig struct{
+	DB *database.Queries
+}
 
 func requestLogger(next http.Handler) http.Handler{
 	return http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
@@ -24,7 +32,22 @@ func main(){
 	if port == ""{
 		log.Fatal("PORT env variable not set")
 	}
+
+	db := os.Getenv("DB_URL")
+	if db == ""{
+		log.Fatal("DB_URL env variable not set")
+	}
 	
+	conn, err := sql.Open("postgres", db)
+	if err != nil {
+		log.Fatal("Can't connect to database: ",err)
+	}
+
+	queries := database.New(conn)
+	apiCfg := &apiConfig{
+		DB: queries,
+	}
+
 	router := chi.NewRouter()
 
 	router.Use(cors.Handler(cors.Options{
@@ -42,6 +65,7 @@ func main(){
 
 	v1Router.Get("/healthz",handleReadiness)
 	v1Router.Get("/err",handleErr)
+	v1Router.Post("/user",apiCfg.handleCreateUser)
 
 	router.Mount("/v1",v1Router)
 
@@ -50,9 +74,9 @@ func main(){
 		Addr: ":" + port,
 	}
 
-	log.Printf("Sever is starting on %v", port)
+	log.Printf("Sever is starting on: %v", port)
 
-	err := server.ListenAndServe()
+	err = server.ListenAndServe()
 	if err != nil {
 		log.Fatal(err)
 	}
